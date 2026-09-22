@@ -2,8 +2,8 @@ import random
 from itertools import combinations  # serve per formare tutte le coppie di una lista
 from z3 import Bool, Or, Not, Solver, sat, is_true  
 
-POS = range(9)         # le posizioni di righe e colonne: 0,1,2,...,8
-numeri = range(1, 10)   # le cifre del Sudoku: 1,2,...,9
+POS = range(9)         
+numeri = range(1, 10)   
 
 x = {(r, c, n): Bool(f"x_{r}_{c}_{n}") for r in POS for c in POS for n in numeri} #dict comprehension
 
@@ -11,7 +11,7 @@ solver = Solver()
 n_clausole = 0        # contatore: quante clausole abbiamo scritto
 
 def proprio_quello(lista):
-
+    """Impone che esattamente una variabile della lista sia vera. """
     global n_clausole
     solver.add(Or(lista))                       
     n_clausole += 1
@@ -41,13 +41,15 @@ for n in numeri:
 n_variabili = len(x) #variabili booleane create non celle del sudoku
 
 def risolvi(griglia):
+    """Riceve una griglia 9x9 e restituisce la soluzione completa,
+    oppure None se non esiste nessuna soluzione."""
     ipotesi = [x[r, c, griglia[r][c]] for r in POS for c in POS if griglia[r][c] != 0]
 
     if solver.check(*ipotesi) != sat:     
         return None                       # no -> nessuna soluzione
 
     modello = solver.model()              # si': ecco la combinazione trovata
-    soluzione = []                      # crea la lista in cui v ail sudoku concluso
+    soluzione = []                      # crea la lista in cui va il sudoku concluso
     for r in POS:
         riga = [] 
         for c in POS:
@@ -59,7 +61,8 @@ def risolvi(griglia):
 
 
 def soluzione_unica(griglia):
-
+    """ Cerchiamo una prima soluzione, creo una regola temporanea che mi cerca una soluzione 
+    diversa da quella che ho appena trovato, se non la trova significa che la soluzione era unica """
     sol_uno = risolvi(griglia)
     if sol_uno is None:
         return False
@@ -72,19 +75,21 @@ def soluzione_unica(griglia):
     return sol_due is None #questo produce direttamente true o false
 
 def soluzione_casuale():
+    """Griglia completa e casuale: riempio a caso i 3 blocchi in diagonale e faccio completare il resto a Z3."""
 
     griglia = [[0] * 9 for _ in POS]
     for b in (0, 3, 6):
         cifre = list(numeri)
         random.shuffle(cifre)          
-        for i in range(3):          #rivedi
+        for i in range(3):          
             for j in range(3):
                 griglia[b + i][b + j] = cifre.pop()
-    return risolvi(griglia) #con questi numeri già fissati dico a z3 di completare il sudoku
+    return risolvi(griglia) #con questi numeri già fissati dico a Z3 di completare il sudoku
 
 
 def genera_puzzle(numeri_dati):
-
+    """Parte da una griglia completa e toglie numeri uno alla volta.
+    Se togliere un numero rende il puzzle ambiguo, lo rimette."""
     soluzione = soluzione_casuale()
     puzzle = [riga[:] for riga in soluzione]          # copia della griglia
     celle = [(r, c) for r in POS for c in POS]
@@ -100,4 +105,3 @@ def genera_puzzle(numeri_dati):
         else:
             puzzle[r][c] = cifra                      
     return puzzle, soluzione #puzzle per giocatore e soluzione che è quello originale
-
