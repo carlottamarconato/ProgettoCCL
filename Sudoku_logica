@@ -1,0 +1,103 @@
+import random                     
+from itertools import combinations  # serve per formare tutte le coppie di una lista
+from z3 import Bool, Or, Not, Solver, sat, is_true  
+
+POS = range(9)         # le posizioni di righe e colonne: 0,1,2,...,8
+numeri = range(1, 10)   # le cifre del Sudoku: 1,2,...,9
+
+x = {(r, c, n): Bool(f"x_{r}_{c}_{n}") for r in POS for c in POS for n in numeri} #dict comprehension
+
+solver = Solver()     
+n_clausole = 0        # contatore: quante clausole abbiamo scritto
+
+def proprio_quello(lista):
+
+    global n_clausole
+    solver.add(Or(lista))                       
+    n_clausole += 1
+    for a, b in combinations(lista, 2):         
+        solver.add(Or(Not(a), Not(b))) 
+        n_clausole += 1 #ogni volta che trova una clausola per coppia la aggiunge al contatore
+
+
+# Regola 1: ogni CELLA contiene esattamente una cifra
+for r in POS:
+    for c in POS:
+        proprio_quello([x[r, c, n] for n in numeri])
+
+for n in numeri:
+    # Regola 2: in ogni RIGA ogni cifra compare esattamente una volta
+    for r in POS:
+        proprio_quello([x[r, c, n] for c in POS])
+    # Regola 3: in ogni COLONNA ogni cifra compare esattamente una volta
+    for c in POS:
+        proprio_quello([x[r, c, n] for r in POS])
+    # Regola 4: in ogni BLOCCO 3x3 ogni cifra compare esattamente una volta
+    for riga_blocco in (0, 3, 6):
+        for col_blocco in (0, 3, 6):
+            proprio_quello([x[riga_blocco + i, col_blocco + j, n]
+                             for i in range(3) for j in range(3)])
+
+n_variabili = len(x) #variabili booleane create non celle del sudoku
+
+def risolvi(griglia):
+    ipotesi = [x[r, c, griglia[r][c]] for r in POS for c in POS if griglia[r][c] != 0]
+
+    if solver.check(*ipotesi) != sat:     
+        return None                       # no -> nessuna soluzione
+
+    modello = solver.model()              # si': ecco la combinazione trovata
+    soluzione = []                      # crea la lista in cui v ail sudoku concluso
+    for r in POS:
+        riga = [] 
+        for c in POS:
+            for n in numeri:
+                if is_true(modello.eval(x[r, c, n], model_completion=True)): # mi chiedo se questa variabile sia vera
+                    riga.append(n)   #se vero aggiungo il numero al alla riha     
+        soluzione.append(riga) #quanto troviamo la soluzione di tutta la riga la aggiungiamo alla soluzione finale
+    return soluzione
+
+
+def soluzione_unica(griglia):
+
+    sol_uno = risolvi(griglia)
+    if sol_uno is None:
+        return False
+    solver.push()                         
+    solver.add(Or([Not(x[r, c, sol_uno[r][c]]) for r in POS for c in POS])) #la prox soluzione deve essere diversa dalla prima di almeno una cella
+    sol_due = risolvi(griglia)
+    solver.pop()    # torno allo stato salvato: tolgo la regola temporanea
+#    if sol_due is None:
+#       return True                
+    return sol_due is None #questo produce direttamente true o false
+
+def soluzione_casuale():
+
+    griglia = [[0] * 9 for _ in POS]
+    for b in (0, 3, 6):
+        cifre = list(numeri)
+        random.shuffle(cifre)          
+        for i in range(3):          #rivedi
+            for j in range(3):
+                griglia[b + i][b + j] = cifre.pop()
+    return risolvi(griglia) #con questi numeri già fissati dico a z3 di completare il sudoku
+
+
+def genera_puzzle(numeri_dati):
+
+    soluzione = soluzione_casuale()
+    puzzle = [riga[:] for riga in soluzione]          # copia della griglia
+    celle = [(r, c) for r in POS for c in POS]
+    random.shuffle(celle)                             #mescolo casualmente le celle
+    inseriti = 81
+    for r, c in celle:
+        if inseriti <= numeri_dati:                    
+            break
+        cifra = puzzle[r][c]
+        puzzle[r][c] = 0                              
+        if soluzione_unica(puzzle):
+            inseriti -= 1                              
+        else:
+            puzzle[r][c] = cifra                      
+    return puzzle, soluzione #puzzle per giocatore e soluzione che è quello originale
+
