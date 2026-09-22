@@ -1,0 +1,238 @@
+import random
+import time
+import tkinter as tk                 
+
+import sudoku_logica as logica       #collega i due file
+
+CELLA = 50         # lato di una cella in pixel
+MARGINE = 20
+SFONDO = "#F4F1EA"
+NERO = "#22223B"
+BLU = "#5973ad"
+VERDE = "#587246"
+ARANCIO = "#E9A23B"
+ROSSO = "#583326"
+ROSINO = "#c18081"
+AZZURRINO = "#EEF2F7"
+ROSA_SCURO = "#b74a4c"
+GRIGIO = "#8D8A82"
+GRIGIO_CHIARO = "#CFCBC0"
+FONT = "Helvetica"
+
+gioco = {
+    "puzzle": [],          # la griglia di partenza (0 = vuota)
+    "soluzione": [],       # la soluzione completa
+    "griglia": [],         # la griglia attuale 
+    "selezionata": None,   # la cella cliccata oppure None
+    "suggerite": set(),    # celle riempite dal solver (le coloriamo di verde)
+    "sbagliate": set(),    # celle segnalate come sbagliate da "Verifica"
+    "finito": False,
+}
+
+def nuova_partita(numeri_dati):
+
+    lbl_stato.config(text="Sto generando un puzzle...", fg=GRIGIO)
+    finestra.update() #aggiorna fast la finestra                                 
+    puzzle, soluzione = logica.genera_puzzle(numeri_dati) #chiama la funzione genera puzzle che genere le due opzioni
+    gioco["puzzle"] = puzzle
+    gioco["soluzione"] = soluzione
+    gioco["griglia"] = [riga[:] for riga in puzzle]     # crea una copia in cui il giocatore può scrivere
+    gioco["selezionata"] = None #il giocatore non ha ancora selezionato nulla
+    gioco["suggerite"] = set()
+    gioco["sbagliate"] = set()
+    gioco["finito"] = False
+    lbl_stato.config(text="Buona fortuna!", fg=NERO)
+    disegna() #aggiorna/disegna la griglia grafica in base ai dati contenuti in gioco griglia
+
+
+def chiama_solver():
+    """Chiede a Z3 la soluzione del puzzle iniziale e misura quanto tempo impiega."""
+    inizio = time.time() #tempo attuale
+    soluzione = logica.risolvi(gioco["puzzle"])
+    millisecondi = (time.time() - inizio) * 1000 #moltiplico per mille pk sono in millisecondi
+    lbl_tempo.config(text=f"{millisecondi:.1f} ms")
+    return soluzione
+#
+
+def suggerimento():
+    
+    if gioco["finito"]:
+        return
+    soluzione = chiama_solver()
+    da_fare = [(r, c) for r in range(9) for c in range(9)
+               if gioco["griglia"][r][c] != soluzione[r][c]]
+    if not da_fare:
+        return
+    if gioco["selezionata"] in da_fare: #seleziono la casella che voglio completare
+        r, c = gioco["selezionata"]
+    else:
+        r, c = random.choice(da_fare) #se non seleziono nulla, sceglie lui randomicamente da quelle da fare
+    gioco["griglia"][r][c] = soluzione[r][c]
+    gioco["suggerite"].add((r, c))
+    gioco["sbagliate"].discard((r, c))
+    gioco["selezionata"] = (r, c) #evidenzia la cella che abbiamo appena suggerito
+    lbl_stato.config(text="Il SAT solver ha calcolato una cella per te.", fg=VERDE)
+    disegna() #aggiorna la grafica
+    controlla_vittoria() #il suggerimento potrebbe aver completato il sudoku
+
+
+def verifica():
+    """Segna in rosso i numeri inseriti che non coincidono con la soluzione."""
+    soluzione = chiama_solver()
+    gioco["sbagliate"] = {(r, c) for r in range(9) for c in range(9) #set di coordinate delle celle sbagliate
+                          if gioco["griglia"][r][c] != 0 #ignora le celle in cui non hai inserito nulla
+                          and gioco["griglia"][r][c] != soluzione[r][c]} #confronto numero inserito con soluzione
+    if gioco["sbagliate"]:
+        lbl_stato.config(text=f"{len(gioco['sbagliate'])} numero/i sbagliato/i.", fg=ROSSO)
+    else:
+        lbl_stato.config(text="Fin qui e' tutto corretto!", fg=VERDE)
+    disegna()
+
+
+def risolvi_tutto():
+    """Z3 risolve l'intero puzzle in un colpo solo."""
+    soluzione = chiama_solver()
+    gioco["griglia"] = [riga[:] for riga in soluzione] #crea una copia delle righe ed evita di modificare soluzione
+    gioco["suggerite"] = {(r, c) for r in range(9) for c in range(9)
+                          if gioco["puzzle"][r][c] == 0}
+    gioco["sbagliate"] = set() #si azzera il set delle celle sbagliate
+    gioco["finito"] = True
+    lbl_stato.config(text="Risolto dal SAT solver!", fg=VERDE)
+    disegna()
+
+
+def controlla_vittoria():
+    if gioco["griglia"] == gioco["soluzione"] and not gioco["finito"]:
+        gioco["finito"] = True
+        lbl_stato.config(text="Complimenti, hai completato il Sudoku!", fg=VERDE)
+
+def clicca(evento):
+    """Quando clicchi sulla griglia: capisco quale cella e' stata cliccata."""
+    c = (evento.x - MARGINE) // CELLA
+    r = (evento.y - MARGINE) // CELLA
+    if 0 <= r < 9 and 0 <= c < 9: #controlla che quello che ho selezionato sia dentro una delle celle
+        gioco["selezionata"] = (r, c)
+        disegna()
+
+
+def premi_tasto(evento):
+    """Quando premi un tasto: se e' una cifra la scrivo nella cella selezionata."""
+    if gioco["selezionata"] is None or gioco["finito"]: #basta che una delle due sia completa
+        return
+    r, c = gioco["selezionata"]
+    if gioco["puzzle"][r][c] != 0 or (r, c) in gioco["suggerite"]:
+        return                                   # le cifre date e i suggerimenti non si toccano
+    if evento.char and evento.char in "123456789":
+        gioco["griglia"][r][c] = int(evento.char) #da stringa diventa numero
+    elif evento.keysym in ("BackSpace", "Delete") or evento.char == "0":
+        gioco["griglia"][r][c] = 0
+    else:
+        return #se non premo qualcosa di accettabile la funzione non fa nulla e si annulla
+    gioco["sbagliate"].discard((r, c)) #rimuove la minchiata che ho scritto dal set 
+    disegna()
+    controlla_vittoria()
+
+def disegna():
+    """Cancella e ridisegna tutta la griglia in base a quello che c'e' in 'gioco'."""
+    tela.delete("all")
+    scelta = gioco["selezionata"]
+
+    for r in range(9):
+        for c in range(9):
+            x0 = MARGINE + c * CELLA #trasformo la posizione logica in pixel
+            y0 = MARGINE + r * CELLA
+
+            # colore di sfondo della cella
+            colore = "white"
+            if scelta is not None:
+                rs, cs = scelta
+                stesso_blocco = (r // 3 == rs // 3) and (c // 3 == cs // 3) #controlla che sia nello stesso gruppo
+                if r == rs or c == cs or stesso_blocco:
+                    colore = AZZURRINO            # riga, colonna e blocco della cella scelta
+                if (r, c) == scelta:
+                    colore = ROSINO               # la cella scelta
+            if (r, c) in gioco["sbagliate"]:
+                colore = ROSA_SCURO
+            tela.create_rectangle(x0, y0, x0 + CELLA, y0 + CELLA,
+                                  fill=colore, outline=GRIGIO_CHIARO)
+
+            # il numero dentro la cella
+            cifra = gioco["griglia"][r][c]
+            if cifra != 0:
+                if gioco["puzzle"][r][c] != 0:
+                    colore_testo, stile = NERO, "bold"        # numero dato dal puzzle
+                elif (r, c) in gioco["suggerite"]:
+                    colore_testo, stile = VERDE, "normal"     # calcolato dal solver
+                elif (r, c) in gioco["sbagliate"]:
+                    colore_testo, stile = ROSSO, "normal"     # sbagliato
+                else:
+                    colore_testo, stile = BLU, "normal"       # scritto da te
+                tela.create_text(x0 + CELLA / 2, y0 + CELLA / 2, text=str(cifra),
+                                 fill=colore_testo, font=(FONT, 26, stile))
+
+    # linee di contorno
+    for i in (0, 3, 6, 9):
+        p = MARGINE + i * CELLA
+        tela.create_line(MARGINE, p, MARGINE + 9 * CELLA, p, width=3, fill=NERO)
+        tela.create_line(p, MARGINE, p, MARGINE + 9 * CELLA, width=3, fill=NERO)
+
+def crea_bottone(genitore, testo, colore, azione):
+    """Crea un bottone colorato: in realta' e' una etichetta su cui si puo' cliccare."""
+    bottone = tk.Label(genitore, text=testo, font=(FONT, 12, "bold"), bg=colore,
+                       fg="white", pady=7, cursor="hand2")
+    bottone.pack(fill="x", pady=3) #lascia un po' di spazio tra i bottoni
+    bottone.bind("<Button-1>", lambda evento: azione()) #rende la label cliccabile
+
+
+finestra = tk.Tk()
+finestra.title("Sudoku SAT")
+finestra.configure(bg=SFONDO) #configure permette di modificare le caratteristiche della finestra
+finestra.resizable(False, False) #utente non può modificare le dimensioni
+
+lato = 9 * CELLA + 2 * MARGINE
+tela = tk.Canvas(finestra, width=lato, height=lato, bg=SFONDO, highlightthickness=0)
+tela.pack(side="left", anchor="n", padx=(10, 0))
+tela.bind("<Button-1>", clicca)
+finestra.bind("<Key>", premi_tasto)
+
+pannello = tk.Frame(finestra, bg=SFONDO)
+pannello.pack(side="left", anchor="n", padx=20, pady=(24, 10))
+
+tk.Label(pannello, text="Sudoku", font=(FONT, 28, "bold"), bg=SFONDO, fg=NERO).pack(anchor="w")
+tk.Label(pannello, text="risolto con un SAT solver (Z3)", font=(FONT, 12),
+         bg=SFONDO, fg=GRIGIO).pack(anchor="w", pady=(0, 12))
+
+crea_bottone(pannello, "Nuova partita - Facile", BLU, lambda: nuova_partita(40))
+crea_bottone(pannello, "Nuova partita - Medio", BLU, lambda: nuova_partita(32))
+crea_bottone(pannello, "Nuova partita - Difficile", BLU, lambda: nuova_partita(26))
+crea_bottone(pannello, "Suggerimento (SAT)", VERDE, suggerimento)
+crea_bottone(pannello, "Verifica", ROSA_SCURO, verifica)
+crea_bottone(pannello, "Risolvi con SAT", NERO, risolvi_tutto)
+
+# riquadro con i numeri della riduzione a SAT
+riquadro = tk.Frame(pannello, bg="white", padx=16, pady=10)
+riquadro.pack(fill="x", pady=(14, 8))
+tk.Label(riquadro, text="LA RIDUZIONE A SAT", font=(FONT, 9, "bold"),
+         bg="white", fg=GRIGIO).pack(anchor="w", pady=(0, 6))
+
+
+def riga_statistica(nome, valore):
+    """Una riga del riquadro: nome a sinistra, valore a destra. Ritorna l'etichetta del valore."""
+    riga = tk.Frame(riquadro, bg="white")
+    riga.pack(fill="x", pady=1)
+    tk.Label(riga, text=nome, font=(FONT, 11), bg="white", fg=NERO).pack(side="left")
+    etichetta = tk.Label(riga, text=valore, font=(FONT, 11, "bold"), bg="white", fg=BLU)
+    etichetta.pack(side="right")
+    return etichetta
+
+
+riga_statistica("Variabili", f"{logica.n_variabili}")
+riga_statistica("Clausole", f"{logica.n_clausole:,}".replace(",", "."))
+lbl_tempo = riga_statistica("Ultima chiamata", "-")
+
+lbl_stato = tk.Label(pannello, text="", font=(FONT, 11), bg=SFONDO, fg=NERO,
+                     wraplength=230, justify="left")
+lbl_stato.pack(anchor="w", pady=(4, 0))
+
+nuova_partita(32)
+finestra.mainloop()   #Mantiene aperta la finestra e continua ad aspettare che l'utente faccia qualcosa
