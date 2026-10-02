@@ -69,9 +69,7 @@ def soluzione_unica(griglia):
     solver.push()                         
     solver.add(Or([Not(x[r, c, sol_uno[r][c]]) for r in POS for c in POS])) #la prox soluzione deve essere diversa dalla prima di almeno una cella
     sol_due = risolvi(griglia)
-    solver.pop()    # torno allo stato salvato: tolgo la regola temporanea
-#    if sol_due is None:
-#       return True                
+    solver.pop()    # torno allo stato salvato: tolgo la regola temporanea              
     return sol_due is None #questo produce direttamente true o false
 
 def soluzione_casuale():
@@ -89,7 +87,7 @@ def soluzione_casuale():
 
 def genera_puzzle(numeri_dati):
     """Parte da una griglia completa e toglie numeri uno alla volta.
-    Se togliere un numero rende il puzzle ambiguo, lo rimette."""
+    Se togliere un numero che rende il puzzle ambiguo, lo rimette."""
     soluzione = soluzione_casuale()
     puzzle = [riga[:] for riga in soluzione]          # copia della griglia
     celle = [(r, c) for r in POS for c in POS]
